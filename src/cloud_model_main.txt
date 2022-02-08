@@ -1,0 +1,88 @@
+# -*- coding: utf-8 -*-
+# @Time    : 2022/1/15 15:14
+# @Author  : TYlvren
+# @FileName: main.py
+# @Software: PyCharm
+import os
+
+from process import *
+from btm.Model import *
+import jieba
+from pathlib import Path
+import cloud_model
+
+
+def save_result(model, model_dir, data):
+    print("=============== Save Model =============")
+    # model.save_theta(model_dir.joinpath("model-theta.csv"))
+    # model.save_phi(model_dir.joinpath("model-phi.csv"))
+    # model.save_phi_top(model_dir, 10)
+    data.title_topic_dict = model.save_doc_topic_max(model_dir.joinpath("doc_topic_max.csv"))
+    model.save_doc_topic_words(data, model_dir.joinpath("doc_topic_words.csv"))
+    model.save_doc_topic(model_dir.joinpath("model-doc_topic.csv"))
+    model.save_words_doc(data, model_dir.joinpath("doc_words.csv"))
+
+
+if __name__ == "__main__":
+    print("=============== Pretreatment =============")
+    process = Process()
+    # print(process.drop_words)
+    data_series = pre_process()
+    auxiliary_stop_words = read_text("resources/txt/auxiliary_stop_words.txt").splitlines()
+    word2id = {}
+    title2content = {}
+    title2id_lines = {}
+    for index, sentences in data_series.items():
+        title2content[index] = sentences
+        sentence_list = sentences.splitlines()
+        id_lines = []
+        for sentence in sentence_list:
+            word_list = jieba.lcut(sentence)
+
+            id_line = []
+            for word in word_list:
+                word = word.lower()
+                if len(word) <= 1 or word.isdigit() or re.search("\\W", word) \
+                        or process.is_stop_word(word, auxiliary_stop_words):
+                    # print(word)
+                    continue
+
+                if word not in word2id:
+                    word2id[word] = len(word2id)
+
+                id_line.append(word2id[word])
+
+            id_lines.append(id_line)
+        title2id_lines[index] = id_lines
+    id2word = {}
+    for word, i in sorted(word2id.items(), key=lambda d: d[1]):
+        id2word[i] = word
+    print(word2id)
+    print(id2word)
+    print(title2id_lines)
+
+    print("=============== Training Model =============")
+    data = Data(id2word, title2id_lines, title2content)
+    K = 10 
+    alpha = 50 / K
+    beta = 0.01  
+    n_iter = 5000  
+    model = Model(K, alpha, beta, n_iter, data, cut_sentence=False)
+    model.run()
+    model.save_phi("resources/csv/btm_model/model-phi.csv")
+    model.save_theta("resources/csv/btm_model/model-theta.csv")
+    resources_dir = Path("resources")
+    model_dir = resources_dir.joinpath("csv/btm_model")
+    save_result(model, model_dir, data)
+
+ 
+    data_df = pd.read_csv('resources/csv/btm_model/doc_words.csv', index_col=0)
+    cloud_model = cloud_model.Model()
+    digital_features_array = cloud_model.compute_digital_features(data_df)
+    pd.DataFrame(digital_features_array, index=data_df.columns, columns=["Ex", "En", "He"]). \
+        to_csv('resources/csv/cloud_model/digital_features.csv')
+
+    Sim = cloud_model.compute_similarity_as_time(digital_features_array)
+    Cr = cloud_model.compute_innovation(digital_features_array)
+    pd.DataFrame(Cr, index=data_df.columns).to_csv('resources/csv/cloud_model/innovation.csv')
+    pd.DataFrame(Sim, index=data_df.columns).to_csv('resources/csv/cloud_model/similarity.csv')

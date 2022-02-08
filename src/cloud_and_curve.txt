@@ -1,0 +1,49 @@
+% cloud_main.m
+clc;
+clear all;
+close all;
+N = 2000;
+Y=xlsread('new_BTM_contrast.xlsx');
+% size(Y,2)
+col = size(Y,2);
+D = cell(col,3);
+for i = 1: col
+    % 
+    [x, y, Ex, En, He] = transform(Y(:,i), N);
+    D{i,1} = num2str(Ex);
+    D{i,2} = num2str(En);
+    D{i,3} = num2str(He);
+% D
+%     p=polyfit(x,y,4);
+%     w=0:0.01:0.8;
+%     z=polyval(p,w);
+%     plot(w,z);
+    Mytype=fittype('A*exp(-(x-u)^2/(2*d^2))');
+    opts = fitoptions( 'Method', 'NonlinearLeastSquares' );
+    opts.Lower = [-Inf -Inf 0];
+    opts.Robust = 'LAR';
+    opts.StartPoint = [0.999999980303811 0.142844746876459 0.112820505760841];
+    [cf ,gof]=fit(x(:),y(:),Mytype,opts);
+    %xi=-0.03:0.001:0.03;
+    xi=-0.03:0.001:0.03;
+    yi=cf.A*exp(-(xi-cf.u).^2/(2*cf.d^2));
+    
+    figure(i)
+    plot(xi,yi,'r','LineWidth',2);
+    hold on;
+    %plot(x, y, '.','Color',[0.39216 0.58431 0.92941]);
+    %plot(x, y, '.','Color',[0.26275 0.43137 0.54118]);
+    plot(x, y, '.','Color',[16/255 104/255 164/255]);
+
+    hold off;
+    
+    xlabel('terms');
+    ylabel('certainty');
+    t = strcat('M',num2str(i));
+    ds = sprintf('%6.6f，',[Ex,En,He]);
+    ds = ds(1:end-1);
+    title({t;ds},'FontSize',10); 
+    %title(title);
+    axis([-0.03, 0.03, 0, 1]);
+end
+xlswrite('experience.xlsx',D)

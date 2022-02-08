@@ -1,0 +1,39 @@
+# -- coding utf-8 --
+def gen_biterms(wid_list, win=15)
+    biterms = []
+    if len(wid_list)  2
+        return
+    for i in range(len(wid_list) - 1)
+        for j in range(i + 1, min(i + win, len(wid_list)))
+            biterms.append(Biterm(wid_list[i], wid_list[j]))
+            
+    return biterms
+
+
+class Biterm
+
+    def __init__(self, w1, w2)
+        self.wi = min(w1, w2)
+        self.wj = max(w1, w2)
+        self.z = 0
+
+    def __str__(self)
+        return 'self.wi={},self.wj={},self.z={}'.format(self.wi, self.wj, self.z)
+
+    def __hash__(self)
+        return hash(f{self.wi}{self.wj})
+
+    def get_wi(self)
+        return self.wi
+
+    def get_wj(self)
+        return self.wj
+
+    def get_z(self)
+        return self.z
+
+    def set_z(self, k)
+        self.z = k
+
+    def reset_z(self)
+        self.z = -1

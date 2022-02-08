@@ -1,0 +1,24 @@
+% cloud_main.m
+clc;
+clear all;
+close all;
+N = 2000;
+Y=xlsread('new_BTM.xlsx');
+% data=xlsread('k=4.xlsx');
+% Y = data';
+col = size(Y,2);
+D = cell(col,3);
+for i = 1:col
+    subplot(size(Y,2)/2, 2, i)
+    [x, y, Ex, En, He] = transform(Y(:,i), N);
+    D{i,1} = num2str(Ex);
+    D{i,2} = num2str(En);
+    D{i,3} = num2str(He);
+    plot(x, y, 'r.');
+
+    xlabel('Terms');
+    ylabel('Certainty');
+%     title('M1:0.0010872,0.0026796,0.0084522');
+    axis([-0.03, 0.03, 0, 1]);
+end
+xlswrite('features.xlsx',D)

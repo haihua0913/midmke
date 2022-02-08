@@ -1,0 +1,161 @@
+# -*- coding: utf-8 -*-
+# @Time    : 2022/1/16 20:34
+# @Author  : TYlvren
+# @FileName: Model.py
+# @Software: PyCharm
+
+import numpy as np
+import math
+import pandas as pd
+
+
+class Model:
+
+    def __init__(self):
+        pass
+
+    def cloud_transform(self, y_spor, n):
+     
+
+        Ex = y_spor.mean()
+        En = abs(y_spor - Ex).mean() * math.sqrt(math.pi / 2)
+        He = math.sqrt(y_spor.var() - En ** 2)
+        x = np.zeros(1)
+        y = np.zeros(1)
+        # for q in range(n):
+        #     Enn = np.random.randn(1) * He + En
+        #     x[q] = np.random.randn() * Enn + Ex
+        #     y[q] = np.exp(-(x[q] - Ex) ** 2 / (2 * Enn ** 2))
+
+        return [x, y, Ex, En, He]
+
+    def compute_digital_features(self, data_df, N=1500):
+     
+        Y = data_df.to_numpy()
+        m = Y.shape[1]
+        # Cr = zeros(m,1);
+        D = np.zeros((m, 3))
+        for i in range(m):
+            x, y, Ex, En, He = self.cloud_transform(Y[:, i], N)
+            D[i, 0] = Ex
+            D[i, 1] = En
+            D[i, 2] = He
+
+        return D
+
+    def compute_cloud_sim(self, cloud1, cloud2):
+        ex1 = cloud1[0]
+        ex2 = cloud2[0]
+        en1 = cloud1[1]
+        en2 = cloud2[1]
+    
+        cloud1_span = [ex1 - 3 * en1, ex1 + 3 * en1]
+        cloud2_span = [ex2 - 3 * en2, ex2 + 3 * en2]
+  
+        if (ex1 + 3 * en1 < ex2 - 3 * en2) or (ex2 + 3 * en2 < ex1 - 3 * en1):
+            sim = 0
+            return sim
+        else:
+            cloud_span = [min(ex1 - 3 * en1, ex2 - 3 * en2), max(ex1 + 3 * en1, ex2 + 3 * en2)]
+       
+        if en1 == en2:
+            x1t = 10e8
+        else:
+            x1t = (ex2 * en1 - ex1 * en2) / (en1 - en2)
+        x2t = (ex1 * en2 - ex2 * en1) / (en1 + en2)
+        x1 = min(x1t, x2t)
+        x2 = max(x1t, x2t)
+        # print "x1:",x1
+        # print "x2:",x2
+   
+        alpha = self.computeAcc(ex1 - 3 * en1, ex1, en1)
+        # print(ex1, en1)
+
+        # print("look",alpha)
+    
+        if x1 >= cloud_span[0] and x2 <= cloud_span[1]:
+            if cloud1_span[0] <= cloud2_span[0]:
+                ol = 2.0 * (cloud2_span[1] - cloud2_span[0]) / (
+                        (cloud1_span[1] - cloud1_span[0]) + (cloud2_span[1] - cloud2_span[0]))
+            else:
+                ol = 2.0 * (cloud1_span[1] - cloud1_span[0]) / (
+                        (cloud1_span[1] - cloud1_span[0]) + (cloud2_span[1] - cloud2_span[0]))
+            sim = (max(self.computeAcc(x1, ex1, en1), self.computeAcc(x2, ex1, en1)) - alpha) / (1 - alpha) * ol
+        else:
+            if cloud1_span[0] <= cloud2_span[0]:
+                ol = 2.0 * (cloud1_span[1] - cloud2_span[0]) / (
+                        (cloud1_span[1] - cloud1_span[0]) + (cloud2_span[1] - cloud2_span[0]))
+            else:
+                ol = 2.0 * (cloud2_span[1] - cloud1_span[0]) / (
+                        (cloud1_span[1] - cloud1_span[0]) + (cloud2_span[1] - cloud2_span[0]))
+            if cloud_span[0] <= x1 <= cloud_span[0]:
+                miu = self.computeAcc(x1, ex1, en1)
+            else:
+                miu = self.computeAcc(x2, ex1, en1)
+            sim = (miu - alpha) / (1 - alpha) * ol
+        return sim
+
+    def computeAcc(self, x, ex, en):
+        # print(ex,en)
+        a = math.exp(-math.pow((x - ex), 2) / (2 * math.pow(en, 2)))
+        # a = math.exp(-math.pow((-3 * en), 2) / (2 * math.pow(en, 2)))
+        # a = math.exp(-4.5)
+
+        return a
+
+    def cloud_sim(self, a, b):
+        ex1, en1, he1 = a
+        ex2, en2, he2 = b
+        sim = (ex1 * ex2 + en1 * en2 + he1 * he2) / (
+                math.sqrt(ex1 ** 2 + ex2 ** 2) + math.sqrt(en1 ** 2 + en2 ** 2) + math.sqrt(he1 ** 2 + he2 ** 2))
+        return sim
+
+    def compute_similarity(self, array):
+        m = len(array)
+
+        Sim = np.zeros(m)
+        for i in range(m):
+            sim = 0
+            for j in range(m):
+                if i == j:
+                    continue
+            
+                result = self.compute_cloud_sim(array[i], array[j])
+                # result = cloud_sim(dc_array[i], dc_array[j])
+                sim += result
+            Sim[i] = sim / m
+
+        return Sim
+
+    def compute_similarity_as_time(self, array):
+        m = len(array)
+        Sim = np.zeros(m)
+        for i in range(m):
+            sim = 0
+            for j in range(i):
+                if i == j:
+                    continue
+            
+                result = self.compute_cloud_sim(array[i], array[j])
+                # result = cloud_sim(dc_array[i], dc_array[j])
+                sim += result
+            Sim[i] = sim / m
+        Sim[0] = 0
+        return Sim
+
+    def compute_innovation(self, sim):
+        return 1 - sim
+
+
+if __name__ == '__main__':
+ 
+    data_df = pd.read_csv('resources/csv/btm_model/doc_words.csv', index_col=0)
+    cloud_model = Model()
+    digital_features_array = cloud_model.compute_digital_features(data_df)
+    pd.DataFrame(digital_features_array, index=data_df.columns, columns=["Ex", "En", "He"]). \
+        to_csv('resources/csv/cloud_model/digital_features.csv')
+
+    Sim = cloud_model.compute_similarity_as_time(digital_features_array)
+    Cr = cloud_model.compute_innovation(Sim)
+    pd.DataFrame(Cr, index=data_df.columns).to_csv('resources/csv/cloud_model/innovation.csv')
+    pd.DataFrame(Sim, index=data_df.columns).to_csv('resources/csv/cloud_model/similarity.csv')

@@ -1,0 +1,321 @@
+# -*- coding: utf-8 -*-
+import random
+
+import numpy as np
+from btm.Biterm import *
+import pandas as pd
+
+class Data:
+    def __init__(self, id2word, title2id_lines, title2content):
+        self.id2word = id2word
+  
+        self.title2id_lines = title2id_lines
+        self.title2content = title2content
+
+
+        self.title_topic_dict = {}
+
+
+        self.topic_title_dict = {}
+
+
+class Model:
+    """
+    @description
+    @param
+    @return:
+    """
+
+    '''
+        If true, the topic 0 is set to a background topic that 
+        equals to the empirical word distribution. It can filter
+        out common words
+    '''
+
+    """
+ 
+    """
+
+    def __init__(self, k, alpha, beta, n_iter, data, cut_sentence=True):
+        self.data = data
+        self.id2w = data.id2word
+        print("编号数", len(self.id2w))
+        self.nb_z = np.zeros(k, dtype=int)  
+        self.K = k
+        self.W = len(self.id2w)
+        self.alpha = alpha
+        self.beta = beta
+        self.n_iter = n_iter
+        self.cut_sentence = cut_sentence
+        self.n_wz = np.zeros((self.W, self.K))  
+        # print(self.n_wz.size)
+        self.biterms = [] 
+        self.title_biterms_dict = {}  
+        self.title_nd_b = {} 
+        self.title_biterms_count = {}  
+
+        self.n_z = []  
+        self.theta = None
+        self.phi = None
+        self.p_zd = {}
+   
+        self.topic_ids = []
+        for i in range(self.K):
+            self.topic_ids.append(f"topic_{i + 1}")
+
+    def run(self):
+        '''
+        @description: 
+        @param {type} 
+        @return: 
+        '''
+     
+        self.load_data()
+
+
+        self.model_init()
+
+        print("词对数量：", len(self.biterms))
+        print("文章数量：", len(self.title_biterms_dict))
+        self.gibbs_sampling()
+        self.comput_theta()
+        self.comput_phi()
+        self.comput_p_zd()
+
+  
+    def gibbs_sampling(self):
+    
+        for i in range(1, self.n_iter + 1):
+            for title, biterm_list in self.title_biterms_dict.items():
+                
+                for biterm in biterm_list:  
+                    self.update_biterm(biterm)  
+            print("self.nb_z:", self.nb_z)
+
+    def model_init(self):
+      
+        for biterm in self.biterms:
+         
+            topicId = random.randint(0, self.K - 1)
+            self.assign_biterm_topic(biterm, topicId) 
+
+    def assign_biterm_topic(self, biterm, k):
+      
+        biterm.set_z(k)
+        w1 = biterm.get_wi() 
+        w2 = biterm.get_wj()  
+
+        self.nb_z[k] += 1  
+        self.n_wz[w1][k] += 1  
+        self.n_wz[w2][k] += 1 
+
+   
+    def load_data(self):
+        
+        for title, id_lines in self.data.title2id_lines.items():
+            biterm_list = []
+            biterm_count_dict = {}
+            if self.cut_sentence:
+           
+                for id_line in id_lines:
+                    biterm_line = gen_biterms(id_line)  
+                    if len(id_line) < 2:
+                        print(id_line)
+                    biterm_list += biterm_line
+            else:
+                
+                id_line = []
+                for temp_id_line in id_lines:
+                    id_line += temp_id_line
+                biterm_line = gen_biterms(id_line)  
+                if len(id_line) < 2:
+                    print(title,id_line)
+                biterm_list += biterm_line
+           
+            count = 0
+            for b in biterm_list:
+                count += 1
+                if b not in biterm_count_dict:
+                    biterm_count_dict[b] = 0
+                biterm_count_dict[b] += 1
+                self.biterms.append(b)  
+            self.title_biterms_dict[title] = biterm_list
+            self.title_nd_b[title] = biterm_count_dict
+            self.title_biterms_count[title] = count
+
+
+    def update_biterm(self, biterm):
+        
+        self.reset_biterm_topic(biterm)
+        pz = self.comput_p_condition(biterm)
+    
+        topicId = self.mul_sample(pz)
+  
+        self.assign_biterm_topic(biterm, topicId)  
+
+    def reset_biterm_topic(self, biterm):
+        k = biterm.get_z()
+        w1 = biterm.get_wi()
+        w2 = biterm.get_wj()
+
+        self.nb_z[k] -= 1
+        self.n_wz[w1][k] -= 1
+        self.n_wz[w2][k] -= 1
+
+        assert (self.nb_z[k] > -10e-7 and self.n_wz[w1][k] > -10e-7 and self.n_wz[w2][k] > -10e-7)
+        biterm.reset_z()
+
+
+    def comput_p_zd(self):
+        p_zb = self.comput_p_zb()
+        for title, biterm_list in self.title_biterms_dict.items():
+            nd_b = self.title_nd_b[title]
+            sum_nd_b = sum(nd_b.values())
+            ks = []
+            for k in range(self.K):
+                result = 0
+                for biterm in biterm_list: 
+                    p_bd = nd_b[biterm] / sum_nd_b  
+                    result += p_zb[biterm][k] * p_bd
+                ks.append(result)
+            self.p_zd[title] = ks
+
+
+    def comput_p_zb(self):
+        p_zb = {}
+        for biterm in self.biterms:
+            wi = biterm.get_wi()
+            wj = biterm.get_wj()
+            denominator = (self.theta * self.phi[wi] * self.phi[wj]).sum()
+            numerator = self.theta * self.phi[wi] * self.phi[wj]
+            p_zb[biterm] = numerator / denominator
+        return p_zb
+
+  
+    def mul_sample(self, vec_p):
+        K = len(vec_p)  
+       
+        for i in range(K):
+            vec_p[i] += vec_p[i - 1]
+        #  [1,2,3] → [4,2,3] → [4,6,3] → [4,6,9]
+        u = random.random()
+        ki = 0
+      
+        for ki in range(K):
+            if vec_p[ki] >= u * vec_p[K - 1]:
+                break
+        return ki
+
+    def comput_p_condition(self, biterm):
+        w1 = biterm.get_wi()  
+        w2 = biterm.get_wj()  #
+
+        pw1k = (self.n_wz[w1] + self.beta) / (2 * self.nb_z + self.W * self.beta)
+        pw2k = (self.n_wz[w2] + self.beta) / (2 * self.nb_z + self.W * self.beta)
+        pk = (self.nb_z + self.alpha)  # / (len(self.biterms) + self.K * self.alpha) 
+        pz = pk * pw1k * pw2k
+
+        return pz
+
+
+    def comput_theta(self):
+        # p(z) is determinated by the overall proportions of biterms in it
+        self.theta = (self.nb_z + self.alpha) / (len(self.biterms) + self.K * self.alpha)
+
+
+    def comput_phi(self):
+      
+        self.phi = (self.n_wz + self.beta) / (self.nb_z * 2 + self.W * self.beta)
+
+
+    def save_theta(self, model_dir):
+        pd.DataFrame(self.theta, index=self.topic_ids, columns=["主题概率"]).to_csv(model_dir)
+
+    def save_phi(self, model_dir):
+        words = []
+        for w_id in range(self.W):
+            words.append(self.data.id2word[w_id])
+
+        pd.DataFrame(self.phi, index=words, columns=self.topic_ids).to_csv(model_dir)
+
+    def save_doc_topic(self, model_dir):
+        pd.DataFrame(self.p_zd.values(), index=self.p_zd.keys(), columns=self.topic_ids).to_csv(model_dir)
+
+    def save_doc_topic_max(self, model_dir):
+        title_max_topic = pd.DataFrame(columns=["文本编号", "概率最大主题", "主题概率"])
+        title_list = []
+        topic_list = []
+        topic_p_list = []
+        for title, p_list in self.p_zd.items():
+            topic_p = max(p_list)
+            topic = self.topic_ids[p_list.index(topic_p)]
+            title_list.append(title)
+            topic_list.append(topic)
+            topic_p_list.append(topic_p)
+        title_max_topic["文本编号"] = title_list
+        title_max_topic["概率最大主题"] = topic_list
+        title_max_topic["主题概率"] = topic_p_list
+
+        title_max_topic.to_csv(model_dir,index=False)
+        return dict(zip(title_list, topic_list))
+
+    # 存储前top个phi
+    def save_phi_top(self, model_dir, top):
+        words = []
+        for w_id in range(self.W):
+            words.append(self.data.id2word[w_id])
+        phi_df = pd.DataFrame(self.phi, index=words, columns=self.topic_ids)
+        for column in phi_df:
+            phi_df[column].sort_values(ascending=False)[:top].to_csv(
+                model_dir.joinpath(f"主题_词-top{top}/{column}.csv"))
+
+    # 主题-编号-内容
+    def save_doc_topic_words(self,data, model_dir):
+        topic_title = {}
+        topic_content = {}
+        for title, topic in data.title_topic_dict.items():
+            content = self.data.title2content[title]
+            # print(word_lines)
+            if topic in topic_title:
+                topic_title[topic].append(title)
+                topic_content[topic] += content + "\n"
+            else:
+                # print(topic)
+                topic_title[topic] = [title]
+                topic_content[topic] = content + "\n"
+
+        data_df = pd.DataFrame(columns=["主题名称", "文本编号", "文本内容"])
+        data_df["主题名称"] = topic_title.keys()
+        data_df["文本编号"] = topic_title.values()
+        data_df["文本内容"] = topic_content.values()
+        data_df.to_csv(model_dir, index=False)
+
+        data.topic_title_dict = topic_title
+
+    def save_words_doc(self, data, model_dir):
+        w2doc = np.zeros((self.W,len(data.title_topic_dict.items())))
+        titles = []
+        # word_set = set()
+        for title,topic in data.title_topic_dict.items():
+            id_lines = data.title2id_lines[title]
+            k = int(topic.split("_")[-1]) - 1
+            w2p = {}
+            for id_line in id_lines:
+                for w in id_line:
+                    w2p[w] = self.phi[w][k] 
+            w2p = dict(list(sorted(w2p.items(),key=lambda d:d[1],reverse=True)))
+            
+            title_id = int(title[1:]) - 1
+            for w,p in w2p.items():
+                # word_set.add(data.id2word[w])
+                w2doc[w][title_id] = p
+            titles.append(title)
+        words = []
+        for w_id in range(self.W):
+            words.append(self.data.id2word[w_id])
+
+        # with open("word.txt","w",encoding="utf-8") as f:
+        #     for word in word_set:
+        #         f.write(word + "\n")
+        pd.DataFrame(w2doc, index=words, columns=titles).to_csv(model_dir)
+
